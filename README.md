@@ -4,6 +4,8 @@ Jenkins auto build projecet and export .ipa on Github by Xcode plugin and xcodeb
 
 以下為建置步驟，我會針對我覺得比較容易卡關的部分來強調，網路資源偏多的就不太著重了。
 
+另外也可以參考我的另外兩篇筆記 [Use RVM on Xcode project](https://gist.github.com/jj2564/6a5788306537d6eb2bc1f91bcc6cfd8c) & [Jenkins with RVM](https://gist.github.com/jj2564/a52fbe90955b10b13b1fd1a5b68914de)，透過使用RVM來統一開發環境也是CD中的一環。
+
 ## 1. Xcode設置
 產生一個Xcode專案後將Automaticallty manage signing關閉，並在[Apple Developer](https://developer.apple.com/account/)分別設置好Debug & Release的Provisioning files下載下來些收好之後會使用。  
 ![Auto_01](_v_images/20190826153737402_546377414.png)  
@@ -83,3 +85,130 @@ ${HOME}/Library/Keychains/login.keychain
 
 ### 2-4 Xcodebuild script
 請先確認電腦中有安裝xcodebuild不過通常有安裝Xcode10以上的版本都會內建，所以應該不用擔心。
+使用script我個人認為自由度比較高，也比較好理解其中的邏輯。 
+
+#### ExportOption.plist
+那麼最大的差異就是我們需要多準備一個檔案，看到之前用Xcode Plugin完成的資料夾中有一個**ExportOption.plist**，這是一個用來進行export放置資訊的檔案，透過xcode來進行時會由xcode自動幫忙準備好，不過用script的時候我們得自己準備好。
+基本上這個檔案的內容都大同小異，可以從我這邊下載，也可以複製以下自己製作，記得要補充上真的對這個專案的資料。
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>compileBitcode</key>
+	<true/>
+	<key>method</key>
+	<string>ad-hoc</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>{YOUR_BUNDLE_ID}</key>
+		<string>{UUID_OF_PROVISIONING_PROFILES}</string>
+	</dict>
+	<key>signingCertificate</key>
+	<string>iPhone Distribution</string>
+	<key>signingStyle</key>
+	<string>manual</string>
+	<key>stripSwiftSymbols</key>
+	<true/>
+	<key>teamID</key>
+	<string>{YOUR_DISTRIBUTION_TEAM_ID}</string>
+	<key>thinning</key>
+	<string>&lt;none&gt;</string>
+</dict>
+</plist>
+```
+
+我會將ExportOption.plist一同放入專案中上傳，不過具體怎麼使用還是看個人。
+
+#### Enviroment Variable
+```script
+# start
+APP_NAME="{YOUR_APP_NAME}"
+# info.plist路徑
+PROJECT_INFOPLIST_PATH="./${APP_NAME}/Info.plist"
+# exportOptions.plist路徑
+EXPORT_PLIST="./ExportOptions.plist"
+# 取得版本號
+BUNDLE_SHORT_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${PROJECT_INFOPLIST_PATH}")
+DATE="$(date +%Y-%m-%d" "%H-%M)"
+IPA_NAME="${APP_NAME}_V${BUNDLE_SHORT_VERSION}.${BUNDLE_VERSION}_${DATE}.ipa"
+# 指定到目前的資料夾
+IPA_PATH="$PWD/${IPA_NAME}"
+```
+
+#### Clean
+```script
+xcodebuild \
+    -workspace "${APP_NAME}.xcworkspace" \
+    -scheme "${APP_NAME}"  \
+    -configuration 'Release' \
+    clean
+```
+
+#### Archive
+```script
+xcodebuild \
+    -workspace "${APP_NAME}.xcworkspace" \
+    -scheme "${APP_NAME}" \
+    -configuration 'Release' \
+    -archivePath "${APP_NAME}.xcarchive" \
+    PROVISIONING_PROFILE_SPECIFIER="{UUID_OF_PROVISIONING_PROFILES}" \
+    DEVELOPMENT_TEAM="{YOUR_DISTRIBUTION_TEAM_ID}" \
+    -allowProvisioningUpdates \
+    archive
+```
+
+#### Export
+```script
+xcodebuild \
+    -exportArchive \
+    -archivePath "${APP_NAME}.xcarchive" \
+    -exportOptionsPlist "${EXPORT_PLIST}" \
+    -exportPath "$PWD"
+
+mv "${APP_NAME}.ipa" "${IPA_NAME}"
+```
+把以上部分的資料填齊全即可成功在專案內部成功建出ipa擋了，如果是企業版用戶的話，只要把ad-hoc換成enterprise即可，相關的憑證也進行更換。
+
+### 2-5 建制觸發程序
+自動編譯的機制做好了，但是覺得還是哪裡怪怪的，到以上為止雖然說是自動，但是還是要登入Jenkins點下組建然後看者進度條，這根本不是自動！
+所以我們在組態中找到這個區塊。
+
+#### SCM & 定期建置 (Crontab)
+SCM(Source Control Management)，這是一個可以讓Jenkins定期去檢查我們設定的git source有無更新的機制。  
+格式大概是如下所示。
+```
+* * * * *
+```
+第一眼看起來完全看不懂這是什麼表示法，不過以上這樣所表示為**每分鐘進行一次**的意思，這是一種Linux中稱作***Crontab***的表示法。  
+這五個*分別代表了
+- MINUTE 0~59
+- HOUR  0-23
+- DAY OF MONTH 1-31
+- MONTH 1-12
+- DAY OF WEEK 
+
+|     名稱      | 範圍  |
+| ------------ | :--: |
+| MINUTE       | 0-59 |
+| HOUR         | 0-23 |
+| DAY OF MONTH | 1-31 |
+| MONTH        | 1-12 |
+| DAY OF WEEK  | 0-7  |
+
+大概舉幾個範例就能明白  
+
+|      Crontab      |                         效果                          |
+| ----------------- | :----------------------------------------------------: |
+| H/15 * * * * *    | 每15分鐘進行一次(從存檔時開始進算，所以不會是剛好是0, 15, 30) |
+| 30 9-18 * * *     |                 每天9-18點鐘30分整的時候                  |
+| 45 9-16/2 * * 1-5 |        每兩小時的45分且在9-16點的工作日(週一至週五)         |
+| H H 1,15 1-11 *   |           每天一次，在每個月的1日與15日，除了12月           |
+
+定期建置的話格式與剛剛的SCM是一樣的，這是給需要一定時間就發出測試版本使用的，有此需求也可以使用。
+
+#### GitHub hook trigger for GITScm polling
+這是一個Github的Plugin所提供的功能，可以再有資料更新的時候發出一個webhook，讓Jenkins根據這個event來進行自動編譯。
+
+
+
