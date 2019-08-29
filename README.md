@@ -89,7 +89,7 @@ ${HOME}/Library/Keychains/login.keychain
 
 #### ExportOption.plist
 那麼最大的差異就是我們需要多準備一個檔案，看到之前用Xcode Plugin完成的資料夾中有一個**ExportOption.plist**，這是一個用來進行export放置資訊的檔案，透過xcode來進行時會由xcode自動幫忙準備好，不過用script的時候我們得自己準備好。
-基本上這個檔案的內容都大同小異，可以從我這邊下載，也可以複製以下自己製作，記得要補充上真的對這個專案的資料。
+基本上這個檔案的內容都大同小異，可以從我這邊[下載](https://github.com/jj2564/CDwithJenkins/blob/master/ExportOptions.plist)，也可以複製以下自己製作，記得要補充上真的對這個專案的資料。
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
